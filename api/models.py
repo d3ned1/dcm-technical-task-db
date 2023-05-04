@@ -19,6 +19,13 @@ class TestFilePath(Timestampable):
         return self.path
 
 
+class TestUploadDirectory(Timestampable):
+    directory = models.CharField(max_length=1024, unique=True)
+
+    def __str__(self):
+        return self.directory
+
+
 class TestEnvironment(Timestampable):
     class StatusChoices(ExtendedEnum):
         IDLE = 'IDLE'
