@@ -15,7 +15,7 @@ class AddNewRequest extends Component {
                       <select className="form-control" name="upload_dir" id="upload_dir" placeholder="Upload Dir"
                               value={this.props.uploadDir}  onChange={this.props.uploadDirChanged.bind(this)}>
                         <option value="" defaultValue></option>
-                          {this.props.assets.upload_dirs && this.props.assets.upload_dirs.map(item => <option value={item} key={item}>{item}</option>)}
+                          {this.props.assets.upload_dirs && this.props.assets.upload_dirs.map(item => <option value={item.directory} key={item.id}>{item.directory}</option>)}
                       </select>
                       <p className="error-message">{this.props.uploadDirError}</p>
                     </div>
