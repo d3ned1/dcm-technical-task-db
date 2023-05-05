@@ -12,6 +12,11 @@ class AddNewRequest extends Component {
                 <form>
                   <div className="row">
                     <div className="col-md-3 form-group">
+                        <input type="text" className="form-control" name="new_upload_dir" id="new_upload_dir"
+                               placeholder="Add New Upload Directory" value={this.props.uploadDir} onChange={this.props.uploadDirChanged.bind(this)}/>
+                               <p className="error-message">{this.props.uploadDirError}</p>
+                    </div>
+                    <div className="col-md-3 form-group">
                       <select className="form-control" name="upload_dir" id="upload_dir" placeholder="Upload Dir"
                               value={this.props.uploadDir}  onChange={this.props.uploadDirChanged.bind(this)}>
                         <option value="" defaultValue></option>

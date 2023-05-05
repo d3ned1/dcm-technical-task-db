@@ -28,12 +28,7 @@ class IONOSTestExecutor extends Component {
   interval = null
 
   componentDidMount () {
-    axios.get('assets').then(response => {
-      this.setState({assets: response.data})
-    }).catch(error => {
-      this.setState({error: true})
-    })
-
+    this.refreshAssets()
     this.interval = setInterval(this.refreshList, 1000);
     this.refreshList()
   }
@@ -49,6 +44,14 @@ class IONOSTestExecutor extends Component {
       }
     })
     return val;
+  }
+
+  refreshAssets = () => {
+    axios.get('assets').then(response => {
+      this.setState({assets: response.data})
+    }).catch(error => {
+      this.setState({error: true})
+    })
   }
 
   refreshList = () => {
@@ -128,6 +131,10 @@ class IONOSTestExecutor extends Component {
     this.setState({testPath: value});
   }
 
+  handleUploadDirChanged = (e) => {
+    this.setState({ uploadDir: e.target.value?.toString()})
+  }
+
   render () {
     if (this.state.detailsView) {
       return (
@@ -156,7 +163,7 @@ class IONOSTestExecutor extends Component {
               testFileChanged={e => this.setState({ testFile: e.target.files[0] })}
               testFileError={this.testFileError}
               uploadDir={this.state.uploadDir}
-              uploadDirChanged={e => this.setState({ uploadDir: e.target.value?.toString() })}
+              uploadDirChanged={this.handleUploadDirChanged}
               uploadDirError={this.state.uploadDirError}
               uploadTest={this.uploadTest}
           ></AddNewTest>
