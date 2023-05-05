@@ -1,8 +1,10 @@
 from pathlib import Path
 
+from django.db import transaction
 from rest_framework import serializers
 
 from api.models import TestRunRequest, TestFilePath, TestEnvironment, TestUploadDirectory
+from api.utils import validate_python_file_extension, validate_directory_name
 from ionos.settings import BASE_DIR
 
 
@@ -53,10 +55,10 @@ class TestFilePathSerializer(serializers.ModelSerializer):
 
 
 class TestFileUploadRequestSerializer(serializers.Serializer):
-    test_file = serializers.FileField()
-    upload_dir = serializers.CharField(max_length=1024)
+    test_file = serializers.FileField(validators=[validate_python_file_extension])
+    upload_dir = serializers.CharField(max_length=1024, validators=[validate_directory_name])
 
-    def create(self, validated_data):
+    def create(self, validated_data) -> dict:
         """
         Extract uploaded file from corresponding field.
         Check that directory already exists.
@@ -64,15 +66,18 @@ class TestFileUploadRequestSerializer(serializers.Serializer):
         """
         test_file = validated_data["test_file"]
         upload_dir = validated_data["upload_dir"]
-        directory = Path(BASE_DIR) / upload_dir
 
-        if not directory.exists():
-            directory.mkdir()
+        with transaction.atomic():
+            test_upload_directory, _ = TestUploadDirectory.objects.get_or_create(directory=upload_dir)
+            full_path = Path(BASE_DIR) / upload_dir / test_file.name
+            relative_path = full_path.relative_to(Path(BASE_DIR))
+            test_file_path, _ = TestFilePath.objects.get_or_create(path=relative_path)
 
-        with open(Path(BASE_DIR) / upload_dir / test_file.name, "wb+") as destination:
-            for chunk in test_file.chunks():
-                destination.write(chunk)
-        return validated_data
+            with open(full_path, "wb+") as destination:
+                for chunk in test_file.chunks():
+                    destination.write(chunk)
+
+        return {"upload_dir": test_upload_directory.directory, "test_file": str(test_file_path.path)}
 
     def update(self, instance, validated_data):
         raise Exception("Update method is not allowed")
