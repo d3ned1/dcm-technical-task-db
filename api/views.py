@@ -1,5 +1,5 @@
 from rest_framework import status
-from rest_framework.generics import ListCreateAPIView, RetrieveAPIView, CreateAPIView
+from rest_framework.generics import ListCreateAPIView, RetrieveAPIView
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -10,9 +10,15 @@ from api.tasks import execute_test_run_request
 from api.usecases import get_assets
 
 
-class TestFileUploadRequestAPIView(CreateAPIView):
+class TestFileUploadRequestAPIView(APIView):
     parser_classes = [MultiPartParser]
     serializer_class = TestFileUploadRequestSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.create(serializer.validated_data)
+        return Response(data, status=status.HTTP_201_CREATED)
 
 
 class TestRunRequestAPIView(ListCreateAPIView):
@@ -31,6 +37,6 @@ class TestRunRequestItemAPIView(RetrieveAPIView):
 
 
 class AssetsAPIView(APIView):
-
-    def get(self, request):
+    @staticmethod
+    def get(request):
         return Response(status=status.HTTP_200_OK, data=get_assets())
