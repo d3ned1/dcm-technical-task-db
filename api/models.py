@@ -1,7 +1,10 @@
+from pathlib import Path
+
 from django.conf import settings
 from django.db import models
 
 from api.utils import ExtendedEnum
+from ionos.settings import BASE_DIR
 
 
 class Timestampable(models.Model):
@@ -24,6 +27,15 @@ class TestUploadDirectory(Timestampable):
 
     def __str__(self):
         return self.directory
+
+    def save(
+        self, force_insert=False, force_update=False, using=None, update_fields=None
+    ):
+        directory = Path(BASE_DIR) / self.directory
+        if not directory.exists():
+            directory.mkdir(parents=True)
+        self.directory = str(directory.relative_to(BASE_DIR))
+        super().save(force_insert, force_update, using, update_fields)
 
 
 class TestEnvironment(Timestampable):
