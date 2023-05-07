@@ -1,10 +1,8 @@
-from pathlib import Path
-
 from django.conf import settings
 from django.db import models
+from django.db.transaction import atomic
 
-from api.utils import ExtendedEnum
-from ionos.settings import BASE_DIR
+from api.utils import ExtendedEnum, make_upload_directory
 
 
 class Timestampable(models.Model):
@@ -31,10 +29,8 @@ class TestUploadDirectory(Timestampable):
     def save(
         self, force_insert=False, force_update=False, using=None, update_fields=None
     ):
-        directory = Path(BASE_DIR) / self.directory
-        if not directory.exists():
-            directory.mkdir(parents=True)
-        self.directory = str(directory.relative_to(BASE_DIR))
+        directory = make_upload_directory(self.directory)
+        self.directory = str(directory.relative_to(settings.BASE_DIR))
         super().save(force_insert, force_update, using, update_fields)
 
 
@@ -110,5 +106,3 @@ class TestRunRequest(Timestampable):
             return
         self.logs += '\n' + logs
         self.save()
-
-
