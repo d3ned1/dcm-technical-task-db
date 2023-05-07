@@ -1,10 +1,15 @@
+import io
+import string
+from pathlib import Path
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 
 from api.models import TestRunRequest, TestEnvironment, TestFilePath
+from api.utils import INVALID_DIR_FULL_MESSAGE, INVALID_DIR_ROOT_MESSAGE
 
 
 class TestTestRunRequestAPIView(TestCase):
@@ -43,7 +48,7 @@ class TestTestRunRequestAPIView(TestCase):
         )
 
     def test_post_invalid_path_and_env_id(self):
-        response = self.client.post(self.url, data={'env': 'rambo', 'path': "waw", 'requested_by': 'iron man'})
+        response = self.client.post(self.url, data={'env': 'rambo', 'path': 'waw', 'requested_by': 'iron man'})
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
         response_data = response.json()
         self.assertEqual({
@@ -74,7 +79,8 @@ class TestTestRunRequestAPIView(TestCase):
 
     @patch('api.views.execute_test_run_request.delay')
     def test_post_valid_one_path(self, task):
-        response = self.client.post(self.url, data={'env': self.env.id, 'path': self.path1.id, 'requested_by': 'iron man'})
+        response = self.client.post(self.url,
+                                    data={'env': self.env.id, 'path': self.path1.id, 'requested_by': 'iron man'})
         self.assertEqual(status.HTTP_201_CREATED, response.status_code)
         response_data = response.json()
         self.__assert_valid_response(response_data, [self.path1.id])
@@ -112,10 +118,10 @@ class TestRunRequestItemAPIView(TestCase):
         self.path2 = TestFilePath.objects.create(path='path2')
         self.test_run_req.path.add(self.path1)
         self.test_run_req.path.add(self.path2)
-        self.url = reverse('test_run_req_item', args=(self.test_run_req.id, ))
+        self.url = reverse('test_run_req_item', args=(self.test_run_req.id,))
 
     def test_get_invalid_pk(self):
-        self.url = reverse('test_run_req_item', args=(8897, ))
+        self.url = reverse('test_run_req_item', args=(8897,))
         response = self.client.get(self.url)
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
@@ -152,3 +158,116 @@ class TestAssetsAPIView(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual({'k': 'v'}, response.json())
+
+
+class TestFileUploadRequestAPIView(TestCase):
+    def setUp(self) -> None:
+        self.url = reverse('test_file_upload_req')
+        self.correct_ext_file = io.BytesIO(b"PYa\x01\x00\x01\x00\x00\x00\x00")
+        self.correct_ext_file.name = "test_suite.py"
+        self.incorrect_ext_file = io.BytesIO(b"PYa\x01\x00\x01\x00\x00\x00\x00")
+        self.incorrect_ext_file.name = "test_suite.go"
+
+    def test_post_no_data(self):
+        response = self.client.post(self.url, data={})
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        response_data = response.json()
+        self.assertEqual(
+            {'test_file': ['No file was submitted.'], 'upload_dir': ['This field is required.']},
+            response_data
+        )
+
+    def test_post_not_a_file(self):
+        response = self.client.post(self.url, data={'test_file': 'string', 'upload_dir': 'test_dir'})
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        response_data = response.json()
+        self.assertEqual(
+            {'test_file': ['The submitted data was not a file. Check the encoding type on the form.']},
+            response_data
+        )
+
+    @patch('api.models.make_upload_directory', return_value=Path(settings.BASE_DIR) / "test_dir")
+    @patch('api.serializers.save_file')
+    def test_post_file(self, *_):
+        with self.subTest('Correct extension'):
+            response = self.client.post(
+                self.url, data={'test_file': self.correct_ext_file, 'upload_dir': 'test_dir'}
+            )
+            self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+            self.assertEqual(response.json(), {
+                'test_file': "test_dir/" + self.correct_ext_file.name,
+                'upload_dir': 'test_dir'
+            })
+
+        with self.subTest('Incorrect extension'):
+            response = self.client.post(
+                self.url, data={'test_file': self.incorrect_ext_file, 'upload_dir': 'test_dir'}
+            )
+            self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+            self.assertEqual(response.json(), {
+                'test_file': ['File extension “go” is not allowed. Allowed extensions are: py.']
+            })
+
+    @patch('api.serializers.save_file')
+    def test_post_directory(self, _):
+        """
+        processed_by_pathlib symbols are correctly processed by Path
+        """
+        string_digits_letters = string.digits + string.ascii_letters + '_-'
+        processed_by_pathlib = {'\t', '\n', '\x0b', '\x0c', '\r', ' ', '.', '/'}
+        not_allowed = set(string_digits_letters) ^ set(string.printable) ^ processed_by_pathlib
+        valid_directories = ["dir1/", "dir2", "dir2//", "dir2/.", "dir_3/dir-4/"]
+        root_directories = ["/dir1/", "/dir2", "/dir_3/dir-4/"]
+        invalid_directories = ["dir_3!/dir-4/", "!", "dir/dir.py"] + [
+            "dir/" + chr(c) for c in range(128) if chr(c) in not_allowed
+        ]
+
+        for directory in valid_directories:
+            with patch('api.models.make_upload_directory', return_value=Path(settings.BASE_DIR) / directory):
+                with self.subTest(f"checking valid directory: {directory}"):
+                    self.correct_ext_file = io.BytesIO(b"PYa\x01\x00\x01\x00\x00\x00\x00")
+                    self.correct_ext_file.name = "test_suite.py"
+                    response = self.client.post(
+                        self.url, data={'test_file': self.correct_ext_file, 'upload_dir': directory}
+                    )
+                    directory_path = Path(directory)
+                    file_path = directory_path.joinpath(self.correct_ext_file.name)
+                    self.assertEqual(response.json(), {
+                        'test_file': str(file_path), "upload_dir": str(directory_path)
+                    })
+                    self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+
+        # noinspection DuplicatedCode
+        for root_directory in root_directories:
+            with patch('api.models.make_upload_directory', return_value=Path(settings.BASE_DIR) / root_directory):
+                with self.subTest(f"checking root directory: {root_directory}"):
+                    self.correct_ext_file = io.BytesIO(b"PYa\x01\x00\x01\x00\x00\x00\x00")
+                    self.correct_ext_file.name = "test_suite.py"
+                    response = self.client.post(
+                        self.url, data={'test_file': self.correct_ext_file, 'upload_dir': root_directory}
+                    )
+                    self.assertEqual(response.json(), {"upload_dir": [INVALID_DIR_ROOT_MESSAGE]})
+                    self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+        # noinspection DuplicatedCode
+        for invalid_directory in invalid_directories:
+            with patch('api.models.make_upload_directory', return_value=Path(settings.BASE_DIR) / invalid_directory):
+                with self.subTest(f"checking invalid directory: {invalid_directory}"):
+                    self.correct_ext_file = io.BytesIO(b"PYa\x01\x00\x01\x00\x00\x00\x00")
+                    self.correct_ext_file.name = "test_suite.py"
+                    response = self.client.post(
+                        self.url, data={'test_file': self.correct_ext_file, 'upload_dir': invalid_directory}
+                    )
+                    self.assertEqual(response.json(), {"upload_dir": [INVALID_DIR_FULL_MESSAGE]})
+                    self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+        for blank in ['', 'dir/\x00']:
+            with self.subTest(f"checking blank directory"):
+                with patch('api.models.make_upload_directory', return_value=Path(settings.BASE_DIR) / blank):
+                    self.correct_ext_file = io.BytesIO(b"PYa\x01\x00\x01\x00\x00\x00\x00")
+                    self.correct_ext_file.name = "test_suite.py"
+                    response = self.client.post(
+                        self.url, data={'test_file': self.correct_ext_file, 'upload_dir': ""}
+                    )
+                    self.assertEqual(response.json(), {"upload_dir": ['This field may not be blank.']})
+                    self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
